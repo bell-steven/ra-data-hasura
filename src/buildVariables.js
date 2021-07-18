@@ -25,6 +25,14 @@ const buildGetListVariables = (introspectionResults) => (
   let { filter: filterObj = {} } = params;
   const { customFilters = [] } = params;
 
+  const distinctOnField = 'distinct_on';
+  /** Setting "distinct_on" to be the `filters` object attribute to be used inside RA
+   * and setting to a `distinct_on` variable
+   * and removing from the filter object
+   */
+  const { distinct_on = '' } = filterObj;
+  filterObj = omit(filterObj, [distinctOnField]);
+
   /**
    * Nested entities are parsed by CRA, which returns a nested object
    * { 'level1': {'level2': 'test'}}
@@ -143,11 +151,24 @@ const buildGetListVariables = (introspectionResults) => (
   }
 
   if (params.sort) {
-    result['order_by'] = set(
-      {},
-      params.sort.field,
-      params.sort.order.toLowerCase()
-    );
+    const fieldParts = params.sort.field.split(',');
+    const orderParts = params.sort.order.split(',');
+
+    const orderBy = () => {
+      let sortOrder = {};
+      for (let i = 0; i <= fieldParts.length - 1; i++) {
+        Object.assign(sortOrder, {
+          [fieldParts[i]]: orderParts[i].toLowerCase(),
+        });
+      }
+      return sortOrder;
+    };
+
+    result['order_by'] = orderBy();
+  }
+
+  if (distinct_on) {
+    result['distinct_on'] = distinct_on;
   }
 
   return result;
@@ -191,27 +212,27 @@ const buildUpdateVariables = (introspectionResults) => (
     resource,
     params
   );
-    let permitted_fields = null;
-    const resource_name = resource.type.name;
-    if (resource_name) {
-      let inputType = introspectionResults.types.find(
-        (obj) => obj.name === `${resource_name}_set_input`
-      );
-      if (inputType) {
-        let inputTypeFields = inputType.inputFields;
-        if (inputTypeFields) {
-          permitted_fields = inputTypeFields.map((obj) => obj.name);
-        }
+  let permitted_fields = null;
+  const resource_name = resource.type.name;
+  if (resource_name) {
+    let inputType = introspectionResults.types.find(
+      (obj) => obj.name === `${resource_name}_set_input`
+    );
+    if (inputType) {
+      let inputTypeFields = inputType.inputFields;
+      if (inputTypeFields) {
+        permitted_fields = inputTypeFields.map((obj) => obj.name);
       }
     }
+  }
   return Object.keys(params.data).reduce((acc, key) => {
     // If hasura permissions do not allow a field to be updated like (id),
     // we are not allowed to put it inside the variables
     // RA passes the whole previous Object here
     // https://github.com/marmelab/react-admin/issues/2414#issuecomment-428945402
 
-    // Fetch permitted fields from *_set_input INPUT_OBJECT and filter out any key 
-    // not present inside it    
+    // Fetch permitted fields from *_set_input INPUT_OBJECT and filter out any key
+    // not present inside it
     if (permitted_fields && !permitted_fields.includes(key)) return acc;
 
     if (params.previousData && params.data[key] === params.previousData[key]) {
